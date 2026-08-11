@@ -6,6 +6,7 @@ test_samples/*
 results*
 demo_results/
 inputs*
+grid/*
 1_*
 .DS_Store
 .ipynb_checkpoints
