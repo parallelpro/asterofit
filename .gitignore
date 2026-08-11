@@ -4,9 +4,12 @@ test_models/*
 test_output/*
 test_samples/*
 results*
+demo_results/
 inputs*
 1_*
 .DS_Store
 .ipynb_checkpoints
 time_comsumption.txt
 ._*
+*.egg-info/
+.pytest_cache/

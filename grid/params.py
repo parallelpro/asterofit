@@ -60,6 +60,11 @@ user_setup_params = {
 # star age column name, to add a prior. Consider deprecating this and allowing customizing prior/likelihood.
 "col_age_name": "star_age", 
 
+# if treat each observables as independent for constructing χ2.
+# if True, then yes, and the code will search for std unceratinty in columns "e_observables", e.g. "e_Teff", "e_FeH", etc.
+# if False, then no, and the code will search for covariance in columns "c_observablesi_observablesj", e.g. "c_Teff_Teff", "c_Teff_FeH", "c_FeH_luminosity", etc.
+"if_classical_independent": True, 
+
 
 
 ### - 4 - seismic settings ###
@@ -91,7 +96,9 @@ user_setup_params = {
 "surface_correction_formula": "cubic", 
 # if True, discard models with the positive amount of surface correction.
 "require_negative_surface_correction": True,
-
+# if True, discard models with absolute amount of surface correction smaller at high frequencies.
+# for radial modes only.
+"require_absolute_surface_correction_increase_with_nu": True,
 
 # if True, then add systematic uncertainties in the seismic chi2 
 "if_add_model_error": True,

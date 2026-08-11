@@ -105,7 +105,31 @@ class grid:
             observables = self.observables 
             e_observables = ['e_'+s for s in self.observables]
             self.obs_params = data_stellar_params[observables].to_numpy()
-            self.e_obs_params = data_stellar_params[e_observables].to_numpy()
+            
+            if self.if_classical_independent:
+                # 1-σ uncertainty
+                self.e_obs_params = data_stellar_params[e_observables].to_numpy()
+            else:
+                # covariance matrix
+                self.c_obs_params = np.zeros((self.Nstar, self.Nobservable, self.Nobservable))
+                self.cinv_obs_params = np.zeros((self.Nstar, self.Nobservable, self.Nobservable))
+
+                for i in range(0, self.Nobservable):
+                    for j in range(0, i+1):
+                        labelij = 'c_'+observables[i]+'_'+observables[j]
+                        labelji = 'c_'+observables[j]+'_'+observables[i]
+                        if (labelij in data_stellar_params.columns):
+                            self.c_obs_params[:, i, j] = data_stellar_params[labelij].to_numpy()
+                            self.c_obs_params[:, j, i] = data_stellar_params[labelij].to_numpy()
+                        elif (labelji in data_stellar_params.columns):
+                            self.c_obs_params[:, i, j] = data_stellar_params[labelji].to_numpy()
+                            self.c_obs_params[:, j, i] = data_stellar_params[labelji].to_numpy()
+                        else:
+                            raise ValueError('{} not found in the stellar parameter table.'.format(labelij))
+
+                for i in range(self.Nstar):
+                    self.cinv_obs_params[i, :, :] = np.linalg.inv(self.c_obs_params[i, :, :])
+
 
         # read in stellar frequencies
         if self.if_seismic:
@@ -165,7 +189,13 @@ class grid:
                 if self.if_classical:
                     # classical observables
                     mod_params = np.array([atrack[col] for col in self.observables]).T.reshape(Nmodel,-1)
-                    chi2_classical = np.sum((self.obs_params[istar]-mod_params)**2.0/(self.e_obs_params[istar]**2.0), axis=1)#/(Nobservable)
+                    if self.if_classical_independent:
+                        chi2_classical = np.sum((self.obs_params[istar]-mod_params)**2.0/(self.e_obs_params[istar]**2.0), axis=1)#/(Nobservable)
+                    else:
+                        # chi2_classical = np.sum(np.sum((self.obs_params[istar][None, None, :] - mod_params[:, :, None])**2.0/(self.c_obs_params[istar]), axis=2), axis=1)#/(Nobservable)
+                        # chi2_classical = self.obs_params[istar][None,:] @ self.cinv_obs_params[istar, :, :] @ self.mod_params[:,:,None]
+                        diff = mod_params[:,:] - self.obs_params[istar][None,:]
+                        chi2_classical = np.einsum('ij,jk,ik->i', diff, self.cinv_obs_params[istar, :, :], diff)
                     idx_classical = chi2_classical < 16. # 4-sigma
                 else:
                     idx_classical = True # all

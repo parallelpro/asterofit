@@ -50,6 +50,8 @@ default_global_params = {
 
     "if_correct_surface": True, 
     "surface_correction_formula": "cubic", 
+    "require_negative_surface_correction": False,
+    "require_absolute_surface_correction_increase_with_nu": False,
 
     "if_add_model_error": True,
     "add_model_error_method": 2,
