@@ -1,4 +1,5 @@
-import numpy as np 
+import numpy as np
+from concurrent.futures import ProcessPoolExecutor
 
 compulsory_global_params = [
     "observables", 
@@ -28,7 +29,10 @@ default_global_params = {
     "estimators_to_plot": None,
     "if_data": True, 
 
-    "Nthread": 1, 
+    "Nthread": 1,
+    # concurrent.futures.Executor subclass used when Nthread > 1 -- swap in
+    # ThreadPoolExecutor, or any class with the same interface, to change backend.
+    "executor_class": ProcessPoolExecutor,
 
     "filepath_output": 'output/',
 
@@ -50,6 +54,8 @@ default_global_params = {
 
     "if_correct_surface": True, 
     "surface_correction_formula": "cubic", 
+    "require_negative_surface_correction": False,
+    "require_absolute_surface_correction_increase_with_nu": False,
 
     "if_add_model_error": True,
     "add_model_error_method": 2,

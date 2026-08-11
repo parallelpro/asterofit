@@ -105,14 +105,38 @@ class grid:
             observables = self.observables 
             e_observables = ['e_'+s for s in self.observables]
             self.obs_params = data_stellar_params[observables].to_numpy()
-            self.e_obs_params = data_stellar_params[e_observables].to_numpy()
+            
+            if self.if_classical_independent:
+                # 1-σ uncertainty
+                self.e_obs_params = data_stellar_params[e_observables].to_numpy()
+            else:
+                # covariance matrix
+                self.c_obs_params = np.zeros((self.Nstar, self.Nobservable, self.Nobservable))
+                self.cinv_obs_params = np.zeros((self.Nstar, self.Nobservable, self.Nobservable))
+
+                for i in range(0, self.Nobservable):
+                    for j in range(0, i+1):
+                        labelij = 'c_'+observables[i]+'_'+observables[j]
+                        labelji = 'c_'+observables[j]+'_'+observables[i]
+                        if (labelij in data_stellar_params.columns):
+                            self.c_obs_params[:, i, j] = data_stellar_params[labelij].to_numpy()
+                            self.c_obs_params[:, j, i] = data_stellar_params[labelij].to_numpy()
+                        elif (labelji in data_stellar_params.columns):
+                            self.c_obs_params[:, i, j] = data_stellar_params[labelji].to_numpy()
+                            self.c_obs_params[:, j, i] = data_stellar_params[labelji].to_numpy()
+                        else:
+                            raise ValueError('{} not found in the stellar parameter table.'.format(labelij))
+
+                for i in range(self.Nstar):
+                    self.cinv_obs_params[i, :, :] = np.linalg.inv(self.c_obs_params[i, :, :])
+
 
         # read in stellar frequencies
         if self.if_seismic:
             self.Dnu = data_stellar_params[self.col_obs_Dnu].to_numpy()
             self.numax = data_stellar_params[self.col_obs_numax].to_numpy()
 
-            if self.if_add_model_error & (self.add_model_error_method==2): 
+            if self.if_add_model_error & (self.add_model_error_method in [2, 3]): 
                 self.mod_e_freq = data_stellar_params[self.col_model_error].to_numpy()
                 
             data_stellar_freqs = pd.read_csv(self.filepath_stellar_freqs)
@@ -165,8 +189,14 @@ class grid:
                 if self.if_classical:
                     # classical observables
                     mod_params = np.array([atrack[col] for col in self.observables]).T.reshape(Nmodel,-1)
-                    chi2_classical = np.sum((self.obs_params[istar]-mod_params)**2.0/(self.e_obs_params[istar]**2.0), axis=1)#/(Nobservable)
-                    idx_classical = chi2_classical < 25. # 5-sigma
+                    if self.if_classical_independent:
+                        chi2_classical = np.sum((self.obs_params[istar]-mod_params)**2.0/(self.e_obs_params[istar]**2.0), axis=1)#/(Nobservable)
+                    else:
+                        # chi2_classical = np.sum(np.sum((self.obs_params[istar][None, None, :] - mod_params[:, :, None])**2.0/(self.c_obs_params[istar]), axis=2), axis=1)#/(Nobservable)
+                        # chi2_classical = self.obs_params[istar][None,:] @ self.cinv_obs_params[istar, :, :] @ self.mod_params[:,:,None]
+                        diff = mod_params[:,:] - self.obs_params[istar][None,:]
+                        chi2_classical = np.einsum('ij,jk,ik->i', diff, self.cinv_obs_params[istar, :, :], diff)
+                    idx_classical = chi2_classical < 16. # 4-sigma
                 else:
                     idx_classical = True # all
 
@@ -192,8 +222,8 @@ class grid:
                         diff_freq_sc = np.zeros((Nmodel, Nmode), dtype=float) + np.nan
                         mod_freq_sc = np.zeros((Nmodel, Nmode), dtype=float) + np.nan
 
-
-                    for imod in range(Nmodel):
+                    
+                    for imod in np.arange(0, Nmodel)[idx_classical]:
                         # get 1) Dnu from frquencies, 2) squared differences
                         # retrieve seismic model parameters
                         mode_freq = np.array(atrack[self.col_mode_freq][imod])
@@ -213,7 +243,7 @@ class grid:
                         # get 1) Dnu, 2) squared differences, 
                         # but for the surface correction version, if there is any
                         if (self.if_correct_surface) & \
-                            (np.abs((Dnu_freq[imod]-self.Dnu[istar])/self.Dnu[istar])<0.2 ) & \
+                            (np.abs((Dnu_freq[imod]-self.Dnu[istar])/self.Dnu[istar])<0.15 ) & \
                             (np.sum(np.isin(mode_l, 0))) :
 
                             # retrieve seismic model parameters
@@ -232,9 +262,15 @@ class grid:
                             diff_freq_sc[imod, :] = (obs_freq_matched-mode_freq_sc_matched)**2.0
                             mod_freq_sc[imod, :] = mode_freq_sc_matched
 
-                    idx_seismic = (np.abs((Dnu_freq-self.Dnu[istar])/self.Dnu[istar])<0.2 )
+                    idx_seismic = (np.abs((Dnu_freq-self.Dnu[istar])/self.Dnu[istar])<0.15 )
                     if self.if_correct_surface: idx_seismic = idx_seismic & np.isfinite(Dnu_freq_sc)
-
+                    if self.if_correct_surface & self.require_negative_surface_correction: 
+                        idx_seismic = idx_seismic & (np.sum(mod_freq_sc - mod_freq > 0, axis=1) == 0 )
+                    if self.if_correct_surface & self.require_absolute_surface_correction_increase_with_nu & (0 in obs_l_unique):
+                        idx_upper_nu = np.argmax(obs_freq[obs_l==0])
+                        idx_lower_nu = np.argmin(obs_freq[obs_l==0])
+                        diff_freq_l0 = mod_freq_sc[:, obs_l==0] - mod_freq[:, obs_l==0]
+                        idx_seismic = idx_seismic & (np.abs(diff_freq_l0[:, idx_upper_nu]) - np.abs(diff_freq_l0[:, idx_lower_nu]) > 0)
                 else:
                     idx_seismic = True
 
@@ -304,8 +340,15 @@ class grid:
                                 if self.add_model_error_method == 1:
                                     mod_e_freq_nreg =  np.percentile(np.mean(diff_freq[:,obs_l_idx[il][self.Nreg:]], axis=1), self.rescale_percentile)
                                     mod_e_freq_reg =  np.percentile(np.mean(diff_freq[:,obs_l_idx[il][:self.Nreg]], axis=1), self.rescale_percentile)
-                                else: #self.add_model_error_method == 2:
+                                elif self.add_model_error_method == 2:
                                     mod_e_freq_nreg, mod_e_freq_reg = self.mod_e_freq[istar], self.mod_e_freq[istar]
+                                else: # self.add_model_error_method == 3:
+                                    r = self.mod_e_freq[istar]/np.min(obs_e_freq[obs_l_idx[il][self.Nreg:]])
+                                    r = r if r>1 else 1
+                                    mod_e_freq_nreg = (r**2. - 1)**0.5 * obs_e_freq[obs_l_idx[il][self.Nreg:]]
+                                    r = self.mod_e_freq[istar]/np.min(obs_e_freq[obs_l_idx[il][:self.Nreg]])
+                                    r = r if r>1 else 1
+                                    mod_e_freq_reg = (r**2. - 1)**0.5 * obs_e_freq[obs_l_idx[il][:self.Nreg]]
                                 self.stardata[istar]['chi2_seismic_obs_mod_nreg_l{:0.0f}'.format(l)] = np.sum(diff_freq[:,obs_l_idx[il][self.Nreg:]]/(obs_e_freq[obs_l_idx[il][self.Nreg:]]**2.0 + mod_e_freq_nreg**2.0), axis=1) / Nnreg
                                 self.stardata[istar]['chi2_seismic_obs_mod_reg_l{:0.0f}'.format(l)] = np.sum(diff_freq[:,obs_l_idx[il][:self.Nreg]]/(obs_e_freq[obs_l_idx[il][:self.Nreg]]**2.0 + mod_e_freq_reg**2.0), axis=1) / Nreg
                                 self.stardata[istar]['chi2_seismic_obs_mod_l{:0.0f}'.format(l)] = np.sum(diff_freq[:,obs_l_idx[il]]/(obs_e_freq[obs_l_idx[il]]**2.0 + mod_e_freq**2.0), axis=1) / Nmode
@@ -315,8 +358,12 @@ class grid:
                             for il, l in enumerate(obs_l_uniq):
                                 if self.add_model_error_method == 1:
                                     mod_e_freq =  np.percentile(np.mean(diff_freq[:,obs_l_idx[il]], axis=1), self.rescale_percentile)
-                                else:  #self.add_model_error_method == 2:
+                                elif self.add_model_error_method == 2:
                                     mod_e_freq =  self.mod_e_freq[istar]
+                                else: # self.add_model_error_method == 3:
+                                    r = self.mod_e_freq[istar]/np.min(obs_e_freq[obs_l_idx[il]])
+                                    r = r if r>1 else 1
+                                    mod_e_freq = (r**2. - 1)**0.5 * obs_e_freq[obs_l_idx[il]]
                                 self.stardata[istar]['chi2_seismic_obs_mod_l{:0.0f}'.format(l)] = np.sum(diff_freq[:,obs_l_idx[il]]/(obs_e_freq[obs_l_idx[il]]**2.0 + mod_e_freq**2.0), axis=1) / Nmode
                                 self.stardata[istar]['chi2_seismic_obs_l{:0.0f}'.format(l)] = np.sum(diff_freq[:,obs_l_idx[il]]/obs_e_freq[obs_l_idx[il]]**2.0, axis=1) / Nmode
                                 self.stardata[istar]['chi2_seismic_l{:0.0f}'.format(l)] = self.stardata[istar]['chi2_seismic_obs_mod_l{:0.0f}'.format(l)]
