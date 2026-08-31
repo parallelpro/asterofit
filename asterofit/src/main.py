@@ -281,6 +281,16 @@ class grid:
             self.obs_freq, self.obs_e_freq, self.obs_l = [np.empty(self.Nstar, dtype=object) for _ in range(3)]
             for istar in range(self.Nstar):
                 star_freq_rows = freqs_by_star.get(self.starIDs[istar], empty_freqs)
+                # `.matching.match_modes` returns the matched modes grouped by
+                # ascending l, and `.process_star_results.compute_chi2_seismic`
+                # indexes those matched arrays with masks built from `obs_l`.
+                # The two line up only if the observations are held sorted by
+                # l, so sort here rather than making it an undocumented
+                # precondition on the input file: a frequency-sorted mode
+                # table (the natural way to write one) would otherwise have
+                # its degrees and uncertainties silently mismatched. Stable,
+                # so the row order within a degree stays the file's.
+                star_freq_rows = star_freq_rows.sort_values(self.col_obs_l, kind='stable')
                 self.obs_freq[istar] = star_freq_rows[self.col_obs_freq].to_numpy()
                 self.obs_e_freq[istar] = star_freq_rows[self.col_obs_e_freq].to_numpy()
                 self.obs_l[istar] = star_freq_rows[self.col_obs_l].to_numpy()
