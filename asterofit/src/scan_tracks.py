@@ -355,7 +355,7 @@ def compute_star_track_result(track: TrackArrays, star: StarObs, config: ScanCon
             # but for the surface correction version, if there is any
             if (config.if_correct_surface) & \
                 (np.abs((Dnu_freq[model_idx]-star.Dnu)/star.Dnu)<0.15 ) & \
-                (np.sum(np.isin(mode_l, 0))) :
+                (np.sum(np.isin(mode_l, 0)) > 0) :
 
                 mode_inertia = track.mode_inertia_all[model_idx]
                 acoustic_cutoff = track.acoustic_cutoff_all[model_idx]
