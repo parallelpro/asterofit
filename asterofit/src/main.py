@@ -390,6 +390,8 @@ class grid:
                 if self.if_seismic:
                     list_of_star_results[istar]['diff_freq', itrack] = np.array(result['diff_freq'][keep_mask], dtype=float)
                     list_of_star_results[istar]['mod_freq', itrack] = np.array(result['mod_freq'][keep_mask], dtype=float)
+                    list_of_star_results[istar]['mod_n', itrack] = np.array(result['mod_n'][keep_mask], dtype=float)
+                    list_of_star_results[istar]['mod_inertia', itrack] = np.array(result['mod_inertia'][keep_mask], dtype=float)
                     list_of_star_results[istar]['Dnu_freq', itrack] = np.array(result['Dnu_freq'][keep_mask], dtype=float)
                     list_of_star_results[istar]['eps', itrack] = np.array(result['eps'][keep_mask], dtype=float)
 
@@ -606,7 +608,8 @@ class grid:
             if self.if_seismic:
                 star_results_keys = star_results_keys + ['chi2_seismic']
                 l_values = self.obs_l_uniq[istar]
-                star_results_keys = star_results_keys + ['Dnu_freq', 'eps', 'diff_freq', 'mod_freq']
+                star_results_keys = star_results_keys + ['Dnu_freq', 'eps', 'diff_freq', 'mod_freq',
+                                                         'mod_n', 'mod_inertia']
                 star_results_keys = star_results_keys + ['chi2_seismic_l{:0.0f}'.format(l) for l in l_values]
                 star_results_keys = star_results_keys + ['chi2_seismic_obs_l{:0.0f}'.format(l) for l in l_values]
                 if self.if_add_model_error:

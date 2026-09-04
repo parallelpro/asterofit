@@ -328,6 +328,13 @@ def compute_star_track_result(track: TrackArrays, star: StarObs, config: ScanCon
         eps = np.zeros(Nmodel, dtype=float) + np.nan
         diff_freq = np.zeros((Nmodel, Nmode), dtype=float) + np.nan
         mod_freq = np.zeros((Nmodel, Nmode), dtype=float) + np.nan
+        # matched-mode identity (radial order) and inertia, saved so
+        # downstream refinement can interpolate the RAW frequencies per
+        # (l, n) and refit the surface term itself (interpolating the
+        # surface-corrected frequencies is lossy: the correction's 1/inertia
+        # factor is rough along a track even when a1/a3 are smooth)
+        mod_n = np.zeros((Nmodel, Nmode), dtype=float) + np.nan
+        mod_inertia = np.zeros((Nmodel, Nmode), dtype=float) + np.nan
         if config.if_correct_surface:
             surface_parameters = np.zeros((Nmodel,config.Nsurface), dtype=float) + np.nan
             Dnu_freq_sc = np.zeros(Nmodel, dtype=float) + np.nan
@@ -343,13 +350,21 @@ def compute_star_track_result(track: TrackArrays, star: StarObs, config: ScanCon
 
             if len(mode_freq) < len(obs_freq) : continue
 
-            obs_freq_matched, _, _, mode_freq_matched, mode_l_matched, mode_n_matched = match_modes(obs_freq, obs_e_freq, obs_l, mode_freq, mode_l, mode_n)
+            if track.mode_inertia_all is not None:
+                obs_freq_matched, _, _, mode_freq_matched, mode_l_matched, mode_n_matched, mode_inertia_matched = \
+                    match_modes(obs_freq, obs_e_freq, obs_l, mode_freq, mode_l, mode_n,
+                                track.mode_inertia_all[model_idx])
+            else:
+                obs_freq_matched, _, _, mode_freq_matched, mode_l_matched, mode_n_matched = match_modes(obs_freq, obs_e_freq, obs_l, mode_freq, mode_l, mode_n)
+                mode_inertia_matched = np.zeros(len(mode_freq_matched)) + np.nan
 
             if len(mode_freq_matched) < len(obs_freq): continue
 
             Dnu_freq[model_idx], eps[model_idx] = get_model_Dnu(mode_freq_matched, mode_l_matched, star.Dnu, star.numax, mode_n_matched)
             diff_freq[model_idx, :] = (obs_freq_matched-mode_freq_matched)**2.0
             mod_freq[model_idx, :] = mode_freq_matched
+            mod_n[model_idx, :] = mode_n_matched
+            mod_inertia[model_idx, :] = mode_inertia_matched
 
             # get 1) Dnu, 2) squared differences,
             # but for the surface correction version, if there is any
@@ -384,6 +399,8 @@ def compute_star_track_result(track: TrackArrays, star: StarObs, config: ScanCon
 
         result['diff_freq'] = diff_freq
         result['mod_freq'] = mod_freq
+        result['mod_n'] = mod_n
+        result['mod_inertia'] = mod_inertia
         result['Dnu_freq'] = Dnu_freq
         result['eps'] = eps
         if config.if_correct_surface:
