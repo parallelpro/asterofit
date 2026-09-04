@@ -56,7 +56,13 @@ def summarize_star_results(star_results, config) -> dict:
     if len(chi2) <= 5:
         return {'status': 'too_few_models'}
 
-    prob = np.exp(-chi2/2.)
+    # subtract the best chi2 before exponentiating: `exp(-chi2/2)` underflows
+    # to zero for every model once the best chi2 exceeds ~1500, which a fit to
+    # individual frequencies reaches easily, leaving weights that are all zero
+    # (NaN quantiles, and an `argmax` that returns index 0 rather than the best
+    # model). The shift cancels in every use of `prob` -- weights and argmax are
+    # both invariant under a constant factor.
+    prob = np.exp(-(chi2 - np.nanmin(chi2))/2.)
     best_models_ranked_by = ['chi2']
     best_models_indices = [np.nanargmax(prob)]
     best_models_chi2s = [chi2[np.nanargmax(prob)]]
@@ -65,7 +71,7 @@ def summarize_star_results(star_results, config) -> dict:
 
     if config.if_classical:
         chi2_classical = np.array(star_results['chi2_classical'], dtype=float)
-        prob_classical = np.exp(-(chi2_classical)/2.)
+        prob_classical = np.exp(-(chi2_classical - np.nanmin(chi2_classical))/2.)
         best_models_ranked_by.append('chi2_classical')
         best_models_indices.append(np.nanargmax(prob_classical))
         best_models_chi2s.append(chi2_classical[np.nanargmax(prob_classical)])
@@ -74,7 +80,7 @@ def summarize_star_results(star_results, config) -> dict:
 
     if config.if_seismic:
         chi2_seismic = np.array(star_results['chi2_seismic'], dtype=float)
-        prob_seismic = np.exp(-(chi2_seismic)/2.)
+        prob_seismic = np.exp(-(chi2_seismic - np.nanmin(chi2_seismic))/2.)
         best_models_ranked_by.append('chi2_seismic')
         best_models_indices.append(np.nanargmax(prob_seismic))
         best_models_chi2s.append(chi2_seismic[np.nanargmax(prob_seismic)])
