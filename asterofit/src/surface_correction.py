@@ -1,11 +1,94 @@
 import numpy as np
+from scipy.interpolate import interp1d
 from scipy.optimize import linear_sum_assignment
 
-__all__ = ['get_surface_correction', 'surface_params_dict']
+__all__ = ['get_surface_correction', 'get_surface_correction_prescribed',
+           'surface_params_dict']
 
 surface_params_dict = {'cubic': ['surf_a3', 'surf_corr_at_numax'],
                        'combined': ['surf_a1', 'surf_a3', 'surf_corr_at_numax', 'surf_corr_at_1p1_numax'],
-                       'kjeldsen': ['surf_a', 'surf_b', 'surf_corr_at_numax', 'surf_corr_at_1p1_numax']}
+                       'kjeldsen': ['surf_a', 'surf_b', 'surf_corr_at_numax', 'surf_corr_at_1p1_numax'],
+                       'prescribed': ['surf_a1', 'surf_a3', 'surf_corr_at_numax', 'surf_corr_at_1p1_numax']}
+
+# solar references for the 'prescribed' formula's gravity proxy; these MUST
+# match the values the prescription was calibrated with
+# (sg-rotation/src/get_surface_params.py)
+NUMAX_SUN = 3090.0
+TEFF_SUN = 5772.0
+
+
+def get_surface_correction_prescribed(mod_freq, mod_l, mod_inertia,
+                                      mod_numax, surf_corr_at_numax,
+                                      surf_corr_at_1p1_numax, scale=1.1,
+                                      if_full_output=False):
+    """
+    Apply a PRESCRIBED Ball & Gizon (2014) combined surface correction --
+    no per-model regression against the observed modes. The caller supplies
+    the correction magnitude at the model's own numax and at scale*numax
+    (evaluated from a population-level prescription, e.g. a function of the
+    model's gravity/Teff/[Fe/H]); the two anchors are inverted to the
+    (a1, a3) coefficients through the combined-formula basis functions
+    f = (freq/numax)^-1/inertia and g = (freq/numax)^3/inertia,
+    interpolated over the model's l=0 (radial) modes and evaluated at
+    freq = numax. The correction is then applied to every mode.
+
+    Note the non-dimensionalization: freq/NUMAX (matching the calibration
+    in sg-rotation/src/get_surface_params.py), not freq/acoustic_cutoff as
+    in the fitted 'combined' formula -- the returned a1/a3 are on the numax
+    convention and not comparable with the fitted ones.
+
+    ----------
+    Input:
+    mod_freq, mod_l, mod_inertia: array-like[Nmode_mod]
+        Model mode frequency, angular degree, and (weighted) mode inertia.
+    mod_numax: float
+        The model's own numax (scaling relation), same unit as mod_freq.
+    surf_corr_at_numax, surf_corr_at_1p1_numax: float
+        The prescribed correction (usually negative) at mod_numax and at
+        scale*mod_numax.
+    scale: float, default 1.1
+        The second anchor's frequency in units of mod_numax; must match the
+        prescription's calibration.
+    if_full_output: bool, default False
+        If True, also return `surface_params` (see Output).
+
+    ----------
+    Output:
+    new_mod_freq: array-like[Nmode_mod]
+        `mod_freq` with the prescribed surface correction added; returned
+        UNCHANGED (with NaN surface_params) if the model has fewer than 2
+        radial modes, since the basis interpolation is then impossible.
+    surface_params: array-like[4], only if if_full_output=True
+        [a1, a3, surf_corr_at_numax, surf_corr_at_1p1_numax] -- the last
+        two echo the inputs (they are the correction at the two anchors by
+        construction, matching the 'combined' formula's convention).
+
+    """
+    new_mod_freq = np.array(mod_freq)
+    radial = np.asarray(mod_l) == 0
+    if radial.sum() < 2:
+        if if_full_output:
+            return new_mod_freq, np.full(4, np.nan)
+        return new_mod_freq
+
+    freq_l0 = np.asarray(mod_freq)[radial]
+    inertia_l0 = np.asarray(mod_inertia)[radial]
+    kind = 'cubic' if radial.sum() >= 4 else 'linear'
+    basis_f = interp1d(freq_l0, (freq_l0/mod_numax)**-1.0 / inertia_l0,
+                       kind=kind, fill_value='extrapolate')(mod_numax)
+    basis_g = interp1d(freq_l0, (freq_l0/mod_numax)**3.0 / inertia_l0,
+                       kind=kind, fill_value='extrapolate')(mod_numax)
+
+    d1, d2 = surf_corr_at_numax, surf_corr_at_1p1_numax
+    a3 = (scale**-1.0 * d1 - d2) / ((scale**-1.0 - scale**3.0) * basis_g)
+    a1 = (scale**3.0 * d1 - d2) / ((scale**3.0 - scale**-1.0) * basis_f)
+
+    x = new_mod_freq / mod_numax
+    new_mod_freq = new_mod_freq + (a1 * x**-1.0 + a3 * x**3.0) / mod_inertia
+
+    if if_full_output:
+        return new_mod_freq, np.array([a1, a3, d1, d2])
+    return new_mod_freq
 
 
 def get_surface_correction(obs_freq, obs_l, mod_freq, mod_l, mod_inertia, mod_acoustic_cutoff,

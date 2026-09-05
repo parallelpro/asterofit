@@ -52,10 +52,18 @@ default_global_params = {
 
     "if_reduce_seis_chi2": True, 
 
-    "if_correct_surface": True, 
-    "surface_correction_formula": "cubic", 
+    "if_correct_surface": True,
+    "surface_correction_formula": "cubic",
     "require_negative_surface_correction": False,
     "require_absolute_surface_correction_increase_with_nu": False,
+
+    # 'prescribed' surface correction only: the 8 power-law parameters and
+    # the track-table columns for the per-model surface properties they are
+    # evaluated at (see scan_tracks.ScanConfig)
+    "surface_prescription": None,
+    "col_model_numax": None,
+    "col_model_teff": None,
+    "col_model_feh": None,
 
     "if_add_model_error": True,
     "add_model_error_method": 2,

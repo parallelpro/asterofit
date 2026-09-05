@@ -6,12 +6,16 @@ import numpy as np
 try:
     from .matching import match_modes
     from .dnu import get_model_Dnu
-    from .surface_correction import get_surface_correction
+    from .surface_correction import (get_surface_correction,
+                                     get_surface_correction_prescribed,
+                                     NUMAX_SUN, TEFF_SUN)
 except ImportError:
     # allow `python3 scan_tracks.py` directly (e.g. for the self-check below), not just `-m`
     from matching import match_modes
     from dnu import get_model_Dnu
-    from surface_correction import get_surface_correction
+    from surface_correction import (get_surface_correction,
+                                    get_surface_correction_prescribed,
+                                    NUMAX_SUN, TEFF_SUN)
 
 __all__ = ['ScanConfig', 'StarObs', 'TrackArrays', 'extract_track_arrays', 'compute_star_track_result']
 
@@ -36,8 +40,21 @@ class ScanConfig:
         Whether to match/score individual mode frequencies at all.
     if_correct_surface: bool
         Whether to apply a surface-correction formula before matching.
-    surface_correction_formula: 'cubic' | 'combined' | 'kjeldsen'
+    surface_correction_formula: 'cubic' | 'combined' | 'kjeldsen' | 'prescribed'
         Which formula -- see `.surface_correction.get_surface_correction`.
+        'prescribed' applies a population-level prescription instead of a
+        per-model fit (see `.surface_correction
+        .get_surface_correction_prescribed`); it requires
+        `surface_prescription` and the col_model_* fields below.
+    surface_prescription: array-like[8] or None
+        For 'prescribed' only: the correction magnitude at the model's numax
+        and at 1.1*numax as power laws in the model's surface properties,
+        D = t0 * g^t1 * (Teff/5772)^t2 * (1 + t3*[Fe/H]) with theta[0:4]
+        for numax and theta[4:8] for 1.1*numax; g in solar units from the
+        scaling relation g = (numax/3090)*sqrt(Teff/5772).
+    col_model_numax, col_model_teff, col_model_feh: str or None
+        For 'prescribed' only: track-table column names for the per-model
+        (scalar) numax, Teff and [Fe/H] the prescription is evaluated at.
     require_negative_surface_correction: bool
         If True, discard models whose surface correction is positive for any
         mode (physically, the correction should always be negative).
@@ -105,6 +122,11 @@ class ScanConfig:
     estimators: list
     Nsurface: int = 0
     surface_estimators: list = field(default_factory=list)
+    # 'prescribed' surface correction only (see docstring above)
+    surface_prescription: Optional[np.ndarray] = None
+    col_model_numax: Optional[str] = None
+    col_model_teff: Optional[str] = None
+    col_model_feh: Optional[str] = None
     # used by .output_results (sample/quantile summaries for output_results)
     estimators_to_summary: list = field(default_factory=list)
     estimators_to_plot: list = field(default_factory=list)
@@ -203,6 +225,11 @@ class TrackArrays:
     mode_n_all: Optional[list] = None
     mode_inertia_all: Optional[list] = None
     acoustic_cutoff_all: Optional[np.ndarray] = None
+    # per-model surface properties, only set for the 'prescribed' surface
+    # correction (scalar per model, like acoustic_cutoff_all)
+    numax_all: Optional[np.ndarray] = None
+    teff_all: Optional[np.ndarray] = None
+    feh_all: Optional[np.ndarray] = None
 
 
 def extract_track_arrays(track_table, config: ScanConfig) -> TrackArrays:
@@ -248,6 +275,11 @@ def extract_track_arrays(track_table, config: ScanConfig) -> TrackArrays:
             inertia_column = track_table[config.col_mode_inertia]
             track.mode_inertia_all = [np.array(inertia_column[model_idx]) for model_idx in range(Nmodel)]
             track.acoustic_cutoff_all = np.asarray(track_table[config.col_acoustic_cutoff])
+
+            if config.surface_correction_formula == 'prescribed':
+                track.numax_all = np.asarray(track_table[config.col_model_numax], dtype=float)
+                track.teff_all = np.asarray(track_table[config.col_model_teff], dtype=float)
+                track.feh_all = np.asarray(track_table[config.col_model_feh], dtype=float)
 
     return track
 
@@ -375,12 +407,28 @@ def compute_star_track_result(track: TrackArrays, star: StarObs, config: ScanCon
                 mode_inertia = track.mode_inertia_all[model_idx]
                 acoustic_cutoff = track.acoustic_cutoff_all[model_idx]
 
-                mode_freq_sc, surface_parameters[model_idx,:] = get_surface_correction(obs_freq, obs_l, \
-                                                                mode_freq, mode_l, \
-                                                                mode_inertia, acoustic_cutoff, \
-                                                                formula=config.surface_correction_formula, \
-                                                                if_full_output=True, \
-                                                                Dnu=star.Dnu, numax=star.numax)
+                if config.surface_correction_formula == 'prescribed':
+                    # correction from the population-level prescription
+                    # evaluated at this model's own surface properties --
+                    # the observed frequencies play no role here
+                    theta = config.surface_prescription
+                    mod_numax = track.numax_all[model_idx]
+                    grav = (mod_numax/NUMAX_SUN) * np.sqrt(track.teff_all[model_idx]/TEFF_SUN)
+                    teff_term = track.teff_all[model_idx]/TEFF_SUN
+                    feh = track.feh_all[model_idx]
+                    d1 = theta[0] * grav**theta[1] * teff_term**theta[2] * (1 + theta[3]*feh)
+                    d2 = theta[4] * grav**theta[5] * teff_term**theta[6] * (1 + theta[7]*feh)
+                    mode_freq_sc, surface_parameters[model_idx,:] = get_surface_correction_prescribed( \
+                                                                    mode_freq, mode_l, mode_inertia, \
+                                                                    mod_numax, d1, d2, \
+                                                                    if_full_output=True)
+                else:
+                    mode_freq_sc, surface_parameters[model_idx,:] = get_surface_correction(obs_freq, obs_l, \
+                                                                    mode_freq, mode_l, \
+                                                                    mode_inertia, acoustic_cutoff, \
+                                                                    formula=config.surface_correction_formula, \
+                                                                    if_full_output=True, \
+                                                                    Dnu=star.Dnu, numax=star.numax)
 
                 obs_freq_matched, _, _, mode_freq_sc_matched, mode_l_sc_matched, mode_n_sc_matched = match_modes(obs_freq, obs_e_freq, obs_l, mode_freq_sc, mode_l, mode_n)
                 Dnu_freq_sc[model_idx], eps_sc[model_idx] = get_model_Dnu(mode_freq_sc_matched, mode_l_sc_matched, star.Dnu, star.numax, mode_n_sc_matched)

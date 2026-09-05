@@ -149,6 +149,15 @@ class grid:
                 self.Nsurface = len(self.surface_estimators)
                 self.estimators_to_summary = np.concatenate([self.estimators_to_summary, ['Dnu_freq_sc', 'eps_sc'], self.surface_estimators])
 
+                if self.surface_correction_formula == 'prescribed':
+                    if self.surface_prescription is None or len(np.atleast_1d(self.surface_prescription)) != 8:
+                        raise ValueError("surface_correction_formula 'prescribed' needs "
+                                         "'surface_prescription' (the 8 power-law parameters).")
+                    if None in (self.col_model_numax, self.col_model_teff, self.col_model_feh):
+                        raise ValueError("surface_correction_formula 'prescribed' needs "
+                                         "'col_model_numax'/'col_model_teff'/'col_model_feh'.")
+                    self.surface_prescription = np.asarray(self.surface_prescription, dtype=float)
+
         # static, run-level settings for the (self-free) pure kernels in .scan_tracks, .process_star_results, and .output_results
         self.config = ScanConfig(
             if_classical=self.if_classical,
@@ -167,6 +176,10 @@ class grid:
             estimators=self.estimators,
             Nsurface=getattr(self, 'Nsurface', 0),
             surface_estimators=getattr(self, 'surface_estimators', []),
+            surface_prescription=self.surface_prescription,
+            col_model_numax=self.col_model_numax,
+            col_model_teff=self.col_model_teff,
+            col_model_feh=self.col_model_feh,
             if_add_model_error=self.if_add_model_error,
             add_model_error_method=self.add_model_error_method,
             rescale_percentile=self.rescale_percentile,
